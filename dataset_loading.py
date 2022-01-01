@@ -30,11 +30,10 @@ def load_omniglot(base_dir):
         os.mkdir(os.path.join(base_dir, 'data'))
     if not os.path.isfile(os.path.join(base_dir, 'data', 'chardata.mat')):
         download_and_save('https://github.com/yburda/iwae/raw/master/datasets/OMNIGLOT/chardata.mat',
-                          os.path.join(os.getcwd(), 'chardata.mat'))
+                          os.path.join(os.getcwd(),'data', 'chardata.mat'))
     d = scipy.io.loadmat(os.path.join(base_dir, 'data', 'chardata.mat'))
-    print(d.keys())
     data = np.concatenate([d['data'].T.astype('float64'), d['testdata'].T.astype('float64')])
-    data = np.random.binomial(1, data)
+    data = np.random.binomial(1, data).astype('float32')
     np.save(os.path.join(base_dir, 'data', 'omniglotBinerized.npy'), data)
     return data
 
@@ -55,6 +54,11 @@ def load_mnist(base_dir):
                            np.stack([e['image'] for e in tfds.as_numpy(d['test'])])]).reshape([-1, 28 * 28]).astype(
         'float64')
     data /= 255
-    data = np.random.binomial(1, data)
+    data = np.random.binomial(1, data).astype('float32')
+    print(data.dtype)
     np.save(os.path.join(base_dir, 'data', 'mnistBinerized.npy'), data)
     return data
+
+
+d = load_omniglot(os.getcwd())
+print(d.dtype)
