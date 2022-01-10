@@ -1,11 +1,5 @@
-import numpy as np
 import tensorflow as tf
 from tensorflow_probability import distributions as tfd
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-import matplotlib
-import matplotlib.pyplot as plt
-import cycler
 import dataset_loading
 import os
 
@@ -88,7 +82,7 @@ class Decoder(tf.keras.Model):  # This class is the encoder of VAE or IWAE.
             self.decoder_out = tf.keras.Sequential(
                 [tf.keras.layers.Dense(n_deterministic[0], activation=tf.nn.tanh),
                  tf.keras.layers.Dense(n_deterministic[0], activation=tf.nn.tanh),
-                 tf.keras.layers.Dense(784, activation='sigmoid',
+                 tf.keras.layers.Dense(784, activation=None,
                                        bias_initializer=dataset_loading.get_bias(dataset_name, base_dir))])
         else:
             self.h2_to_h1 = StochasticBlock(n_deterministic[1], n_h[0])
@@ -97,7 +91,7 @@ class Decoder(tf.keras.Model):  # This class is the encoder of VAE or IWAE.
             self.decoder_out = tf.keras.Sequential(
                 [tf.keras.layers.Dense(n_deterministic[0], activation=tf.nn.tanh),
                  tf.keras.layers.Dense(n_deterministic[0], activation=tf.nn.tanh),
-                 tf.keras.layers.Dense(784, activation='sigmoid',
+                 tf.keras.layers.Dense(784, activation=None,
                                        bias_initializer=dataset_loading.get_bias(dataset_name, base_dir))])
 
     def call(self, h1, h2=None):
@@ -129,15 +123,15 @@ class IWAE(tf.keras.Model):
 
             logits, p_xGh = self.decoder(h)
 
-            p_h = tfd.Normal(0, 1)
+            q_h = tfd.Normal(0, 1)
 
-            log_p_z = tf.reduce_sum(p_h.log_prob(h), axis=-1)
+            log_q_h = tf.reduce_sum(q_h.log_prob(h), axis=-1)
 
             log_q_hGx = tf.reduce_sum(q_hGx.log_prob(h), axis=-1)
 
             log_p_xGh = tf.reduce_sum(p_xGh.log_prob(x), axis=-1)
 
-            log_weights = log_p_xGh + (log_p_z - log_q_hGx)
+            log_weights = log_p_xGh + (log_q_h - log_q_hGx)
 
         else:
 
@@ -159,7 +153,7 @@ class IWAE(tf.keras.Model):
 
             log_weights = log_p_xGh1 + log_p_h1Gh2 + log_p_h2 - log_q_h1Gx - log_q_h2Gh1
 
-        vae_loss = tf.reduce_mean(tf.reduce_mean(log_weights, axis=0), axis=-1)
+        vae_loss = -tf.reduce_mean(tf.reduce_mean(log_weights, axis=0), axis=-1)
 
         m = tf.reduce_max(log_weights, axis=0, keepdims=True)
         log_w_minus_max = log_weights - m
@@ -167,20 +161,26 @@ class IWAE(tf.keras.Model):
         w_normalized = w / tf.reduce_sum(w, axis=0, keepdims=True)
         w_normalized_stopped = tf.stop_gradient(w_normalized)
 
-        iwae_loss = tf.reduce_mean(tf.reduce_sum(w_normalized_stopped * log_weights, axis=0))
+        iwae_loss = -tf.reduce_mean(tf.reduce_sum(w_normalized_stopped * log_weights, axis=0))
+
+
+        max = tf.reduce_max(log_weights, axis=0)
+        iwae_elbo  = tf.math.log(tf.reduce_mean(tf.exp(log_weights - max), axis=0)) + max
+        iwae_elbo = tf.reduce_mean(iwae_elbo, axis=-1)
 
         return {"vae_loss": vae_loss,
                 "iwae_loss": iwae_loss,
-                "logits": logits}
+                "logits": logits,
+                'iwae_elbo': iwae_elbo}
 
     @tf.function
     def train_step(self, x):
         with tf.GradientTape() as tape:
             res = self.call(x)
             if self.is_IWAE:
-                loss = -res['iwae_loss']
+                loss = res['iwae_loss']
             else:
-                loss = -res['vae_loss']
+                loss = res['vae_loss']
 
         grads = tape.gradient(loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
